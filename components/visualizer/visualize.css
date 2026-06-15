@@ -1,0 +1,383 @@
+/*
+ * Scoped styles for the execution-visualizer route.
+ *
+ * Ported from the standalone java-visualizer's globals.css, but every rule is
+ * nested under .viz-root so its dark palette, box-sizing reset, and element
+ * selectors (input, main, …) never leak into the Tailwind/shadcn notebook pages.
+ * The CSS variables are declared on .viz-root (not :root) for the same reason.
+ */
+
+.viz-root {
+  /* Map the visualizer's palette onto the site's shadcn theme tokens so it
+     matches the rest of the UI in both light and dark mode. --border and
+     --radius are intentionally NOT redefined here — they inherit the site's. */
+  --bg: var(--background);
+  --surface: var(--card);
+  --surface2: var(--secondary);
+  --accent: var(--primary);
+  --accent2: var(--primary);
+  --danger: var(--destructive);
+  --warn: var(--muted-foreground);
+  --text: var(--foreground);
+  --muted: var(--muted-foreground);
+
+  background: var(--background);
+  color: var(--foreground);
+  font-family: inherit;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.viz-root * {
+  box-sizing: border-box;
+}
+
+.viz-root .viz-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 1.25rem 1.5rem;
+  gap: 1rem;
+  min-height: 0;
+}
+
+.viz-root .viz-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+.viz-root .viz-header h1 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin: 0;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.viz-root .viz-nav-link {
+  margin-left: auto;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.86rem;
+  font-weight: 600;
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  transition: all 0.15s;
+}
+.viz-root .viz-nav-link:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+/* ── Java mode ──────────────────────────────────────────────────────────── */
+.viz-root .java-view {
+  display: none;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.viz-root .java-view.visible {
+  display: flex;
+}
+
+.viz-root .java-layout {
+  flex: 1;
+  display: grid;
+  grid-template-columns: var(--split, minmax(360px, 46%)) 6px 1fr;
+  gap: 0.6rem;
+  min-height: 0;
+}
+
+.viz-root .java-left {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  min-height: 0;
+}
+
+.viz-root .java-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.5rem 0.8rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface2);
+  flex-wrap: wrap;
+}
+.viz-root .java-file-label {
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+}
+.viz-root .java-hint {
+  font-size: 0.7rem;
+  color: var(--muted);
+  margin-left: auto;
+}
+
+.viz-root .java-editor {
+  flex: 1;
+  min-height: 200px;
+}
+
+.viz-root .java-console-wrap {
+  border-top: 1px solid var(--border);
+  background: var(--secondary);
+  height: 158px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+}
+.viz-root .java-console-title {
+  padding: 0.3rem 0.8rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.viz-root .java-out {
+  flex: 1;
+  overflow: auto;
+  margin: 0;
+  padding: 0.5rem 0.8rem;
+  font: 12px/1.5 var(--font-mono), "SF Mono", Menlo, Consolas, monospace;
+  color: var(--foreground);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.viz-root .java-right {
+  display: flex;
+  min-height: 0;
+}
+.viz-root .canvas-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  position: relative;
+}
+.viz-root .java-canvas-card {
+  flex: 1;
+  height: auto;
+}
+.viz-root .java-canvas-card canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.viz-root .tabs {
+  display: flex;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+.viz-root .tab {
+  padding: 0.4rem 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 600;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+.viz-root .tab.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--primary-foreground);
+}
+.viz-root .tab:hover:not(.active) {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.viz-root input[type="text"] {
+  padding: 0.45rem 0.65rem;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.92rem;
+  outline: none;
+  transition: border-color 0.15s;
+  font-family: inherit;
+}
+.viz-root input[type="text"]:focus {
+  border-color: var(--accent);
+}
+
+.viz-root .btn {
+  padding: 0.45rem 1rem;
+  border-radius: 8px;
+  border: none;
+  font-size: 0.86rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+  white-space: nowrap;
+  font-family: inherit;
+}
+.viz-root .btn:active {
+  transform: scale(0.96);
+}
+.viz-root .btn:hover {
+  opacity: 0.82;
+}
+.viz-root .btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.viz-root .btn-primary {
+  background: var(--accent);
+  color: var(--primary-foreground);
+}
+.viz-root .btn-success {
+  background: var(--accent2);
+  color: var(--primary-foreground);
+}
+.viz-root .btn-danger {
+  background: var(--danger);
+  color: var(--destructive-foreground);
+}
+.viz-root .btn-ghost {
+  background: var(--surface2);
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+.viz-root .btn-ghost:hover {
+  color: var(--text);
+  border-color: var(--accent);
+  opacity: 1;
+}
+
+.viz-root .frame-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 0.5rem 1rem;
+  background: var(--card);
+  backdrop-filter: blur(4px);
+  border-top: 1px solid var(--border);
+  display: none;
+  align-items: center;
+  gap: 0.7rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.viz-root .frame-bar.visible {
+  display: flex;
+}
+.viz-root .frame-bar input[type="range"] {
+  flex: 1;
+  accent-color: var(--accent);
+}
+.viz-root .frame-btn {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 0 0.6rem;
+  height: 24px;
+  cursor: pointer;
+  font-size: 0.7rem;
+  line-height: 1;
+}
+.viz-root .frame-btn:hover {
+  border-color: var(--accent);
+}
+
+.viz-root .status-bar {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.6rem 1.1rem;
+  font-size: 0.86rem;
+  color: var(--muted);
+  min-height: 2.4rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.viz-root .status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex-shrink: 0;
+}
+.viz-root .status-bar.ok {
+  color: var(--accent2);
+}
+.viz-root .status-bar.ok .status-dot {
+  background: var(--accent2);
+}
+.viz-root .status-bar.err {
+  color: var(--danger);
+}
+.viz-root .status-bar.err .status-dot {
+  background: var(--danger);
+}
+.viz-root .status-bar.info {
+  color: var(--warn);
+}
+.viz-root .status-bar.info .status-dot {
+  background: var(--warn);
+}
+.viz-root .java-status-bar {
+  margin-top: 0;
+}
+
+.viz-root .highlight-line {
+  background: rgba(108, 99, 255, 0.25) !important;
+  border-left: 3px solid var(--accent) !important;
+}
+
+/* Custom resize handle */
+.viz-root .resizer {
+  cursor: col-resize;
+  background: var(--border);
+  border-radius: 3px;
+  align-self: stretch;
+  z-index: 10;
+  transition: background 0.15s ease;
+  touch-action: none;
+}
+.viz-root .resizer:hover,
+.viz-root .resizer:active {
+  background: var(--accent);
+}
+
+@media (max-width: 900px) {
+  .viz-root .java-layout {
+    grid-template-columns: 1fr !important;
+    height: auto;
+  }
+  .viz-root .java-left {
+    height: 60vh;
+  }
+  .viz-root .java-right {
+    height: 50vh;
+  }
+  .viz-root .resizer {
+    display: none;
+  }
+}
