@@ -240,7 +240,7 @@ export async function compileAndRunJava(code: string, opts: CompileRunOptions = 
         // It's safe because all files are compiled in the same default package.
         .replace(/(^|\s)public\s+(class|interface|enum|record)\b/g, "$1$2")
       if (!cleaned.endsWith("\n")) cleaned += "\n"
-      return cleaned
+      return new TextEncoder().encode(cleaned)
     }
 
     // --- Step 1: Write source file(s) to /str/ ---
