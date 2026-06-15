@@ -217,47 +217,44 @@ export async function compileAndRunJava(code: string, opts: CompileRunOptions = 
     
     const lib = await getLib()
     const className = extractClassName(processedCode)
-    const sourceFile = `/str/${className}.java`
     
-    console.log(`[v0] CheerpJ: Processing ${className}.java`)
+    // CheerpJ's /str/ VFS caches file metadata. When a path is overwritten with
+    // different content length, ECJ reads past EOF and throws AIOOBE.
+    // Directories are not supported in /str/. The only 100% reliable fix is to
+    // use a globally unique filename for every compilation pass.
+    // However, ECJ enforces that `public class X` must reside in `X.java`.
+    // By stripping the `public` access modifier from classes, we can name the
+    // files anything we want (e.g., `X_17150000.java`).
+    const runId = Date.now() + "_" + Math.floor(Math.random() * 1000)
+    const sourceFile = `/str/${className}_${runId}.java`
     
-    // CheerpJ's /str/ VFS is a flat namespace (no subdirectories) and can cache
-    // file metadata (including length) when a path is overwritten.  Two defences:
-    //
-    // 1. Strip BOM / zero-width / non-ASCII-printable control chars that could
-    //    cause a byte-length ↔ char-length mismatch in CheerpJ's C++ bridge.
-    //
-    // 2. Pad every source to a fixed minimum size (MIN_SOURCE_PAD bytes of
-    //    trailing newlines). If the VFS still serves a stale "old" length that
-    //    is larger than the real content, the scanner will land in harmless
-    //    whitespace instead of garbage memory.
-    //
-    // 3. If ECJ *still* crashes with AIOOBE, we re-write the file and retry
-    //    once. The second write to an already-existing path usually fixes the
-    //    VFS metadata.
-    const MIN_SOURCE_PAD = 512 // bytes of trailing whitespace appended
+    console.log(`[v0] CheerpJ: Processing ${className}.java (as ${className}_${runId}.java)`)
+    
     const prepareSource = (s: string) => {
-      // Strip BOM, zero-width joiners/non-joiners, and other invisible Unicode
       let cleaned = s
-        .replace(/^\uFEFF/, "")                    // BOM
-        .replace(/[\u200B-\u200F\u2028-\u202F]/g, "") // zero-width & directional
-        .replace(/\r\n/g, "\n")                     // normalise line endings
-        .replace(/\r/g, "\n")                       // lone CR
+        .replace(/^\uFEFF/, "")
+        .replace(/[\u200B-\u200F\u2028-\u202F]/g, "")
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g, "\n")
+        // Strip 'public' from top-level declarations so ECJ accepts arbitrary filenames.
+        // It's safe because all files are compiled in the same default package.
+        .replace(/(^|\s)public\s+(class|interface|enum|record)\b/g, "$1$2")
       if (!cleaned.endsWith("\n")) cleaned += "\n"
-      // Pad to a minimum size so stale VFS lengths land in whitespace.
-      const pad = Math.max(MIN_SOURCE_PAD, cleaned.length) - cleaned.length
-      return cleaned + "\n".repeat(pad) + " \n"
+      return cleaned
     }
 
     // --- Step 1: Write source file(s) to /str/ ---
-    console.log("[v0] CheerpJ: Writing source file to /str/...")
+    console.log("[v0] CheerpJ: Writing source files to /str/...")
     window.cheerpOSAddStringFile(sourceFile, prepareSource(processedCode))
 
     // Extra sources (other notebook cells) compiled alongside the user class.
     const extraSourcePaths: string[] = []
     for (const src of opts.extraSources ?? []) {
-      window.cheerpOSAddStringFile(src.path, prepareSource(src.content))
-      extraSourcePaths.push(src.path)
+      const basename = src.path.split("/").pop()!
+      const nameNoExt = basename.endsWith(".java") ? basename.slice(0, -5) : basename
+      const uniquePath = `/str/${nameNoExt}_${runId}.java`
+      window.cheerpOSAddStringFile(uniquePath, prepareSource(src.content))
+      extraSourcePaths.push(uniquePath)
     }
 
     // Precompiled helper classes (e.g. /files/TreeVisualizer.class) placed on the
@@ -348,70 +345,22 @@ export async function compileAndRunJava(code: string, opts: CompileRunOptions = 
       return { code, out: outStr, err: errStr, thrown }
     }
 
-    // Helper: detect if a compile result hit the CheerpJ scanner crash.
-    const isScannerCrash = (r: { thrown: string; err: string }) =>
-      (r.thrown + r.err).includes("ArrayIndexOutOfBoundsException") &&
-      (r.thrown + r.err).includes("Scanner.getNextToken0")
-
-    // Compile a single source file with one automatic retry if the CheerpJ
-    // scanner crashes.  The retry re-writes the VFS file (which often fixes
-    // stale metadata) and doubles the whitespace padding.
-    const compileWithRetry = async (path: string): Promise<{ code: number; out: string; err: string; thrown: string }> => {
-      let r = await runEcj([path])
-      if (r.code !== 0 && isScannerCrash(r)) {
-        console.log(`[v0] CheerpJ: Scanner crash on ${path}, retrying with fresh VFS write…`)
-        // Re-write source file with double padding — the second write
-        // usually fixes stale VFS metadata for an already-existing path.
-        const isEntry = path === sourceFile
-        const content = isEntry
-          ? processedCode
-          : (opts.extraSources ?? []).find(
-              (s) => s.path === path,
-            )?.content ?? ""
-        if (content) {
-          let cleaned = content
-            .replace(/^\uFEFF/, "")
-            .replace(/[\u200B-\u200F\u2028-\u202F]/g, "")
-            .replace(/\r\n/g, "\n")
-            .replace(/\r/g, "\n")
-          if (!cleaned.endsWith("\n")) cleaned += "\n"
-          window.cheerpOSAddStringFile(path, cleaned + "\n".repeat(MIN_SOURCE_PAD * 2) + " \n")
-        }
-        r = await runEcj([path])
-      }
-      return r
-    }
-
     let compileExitCode = 1
     let compileOutStr = ""
     let compileErrStr = ""
     let compileErrorStr = ""
 
     if (opts.precompileSeparately && extraSourcePaths.length > 0) {
-      // Compile each sibling on its own (libraries first), then the entry against
-      // their .class output. Every pass is single-file, dodging the multi-file
-      // ECJ-on-CheerpJ scanner crash.
       compileExitCode = 0
       for (const path of [...extraSourcePaths, sourceFile]) {
-        const r = await compileWithRetry(path)
+        const r = await runEcj([path])
         compileOutStr += r.out
         compileErrStr += r.err
         if (r.thrown) compileErrorStr = r.thrown
         if (r.code !== 0) { compileExitCode = r.code; break }
       }
     } else {
-      // Single-pass compilation (still retry on scanner crash).
-      const allSources = [sourceFile, ...extraSourcePaths]
-      let r = await runEcj(allSources)
-      if (r.code !== 0 && isScannerCrash(r)) {
-        console.log("[v0] CheerpJ: Scanner crash on multi-file compile, retrying all sources…")
-        // Re-write all sources with extra padding.
-        window.cheerpOSAddStringFile(sourceFile, prepareSource(processedCode))
-        for (const src of opts.extraSources ?? []) {
-          window.cheerpOSAddStringFile(src.path, prepareSource(src.content))
-        }
-        r = await runEcj(allSources)
-      }
+      const r = await runEcj([sourceFile, ...extraSourcePaths])
       compileExitCode = r.code
       compileOutStr = r.out
       compileErrStr = r.err
@@ -426,8 +375,8 @@ export async function compileAndRunJava(code: string, opts: CompileRunOptions = 
     if (!compileSuccess) {
       let errorMsg = compileErrorStr || compileErrStr || compileOutStr || "Compilation failed"
       
-      // If ECJ itself crashed parsing the code (even after retry), replace the
-      // ugly JVM stack trace with a cleaner message.
+      // If ECJ itself crashed parsing the code (even with unique files), replace
+      // the ugly JVM stack trace with a cleaner message.
       if (errorMsg.includes("java.lang.ArrayIndexOutOfBoundsException") && errorMsg.includes("Scanner.getNextToken0")) {
         errorMsg = "Compiler error: The in-browser Java compiler encountered an internal error. " +
           "Try simplifying the code, removing special characters, or refreshing the page."
