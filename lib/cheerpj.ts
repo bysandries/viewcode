@@ -278,7 +278,7 @@ export async function compileAndRunJava(code: string, opts: CompileRunOptions = 
     }
     
     // --- Step 2: Compile using ECJ with timeout ---
-    console.log("[v0] CheerpJ: Compiling with ECJ...")
+    console.log(`[v0] CheerpJ: Compiling with ECJ (Commit 6f8992d / Vercel: ${process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA || 'unknown'})...`)
     const compileStart = performance.now()
 
     // Clean up stale .class files from /files/ from earlier runs
