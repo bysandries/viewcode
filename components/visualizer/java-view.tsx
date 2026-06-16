@@ -7,6 +7,7 @@ import { compileAndRunJava } from "@/lib/cheerpj"
 import "./visualize.css"
 import { parseTreevizSnapshots, type Snapshot, type StackVar, type HeapObj } from "@/lib/viz-snapshots"
 import { useCheerpJ } from "@/components/cheerpj-provider"
+import { TreeVisualizerB64 } from "./TreeVisualizerB64"
 
 const DEFAULT_JAVA_CODE = `public class Main {
     static class Node {
@@ -1489,9 +1490,12 @@ export function JavaView({
       // classpath — unless the user defined their own class by that name.
       const extraClasses: { path: string; bytes: Uint8Array }[] = []
       if (!/class\s+TreeVisualizer\b/.test(code)) {
-        const tvResp = await fetch("/TreeVisualizer.class")
-        const tvBuf = await tvResp.arrayBuffer()
-        extraClasses.push({ path: "/str/TreeVisualizer.class", bytes: new Uint8Array(tvBuf) })
+        const binString = atob(TreeVisualizerB64)
+        const tvBuf = new Uint8Array(binString.length)
+        for (let i = 0; i < binString.length; i++) {
+          tvBuf[i] = binString.charCodeAt(i)
+        }
+        extraClasses.push({ path: "/str/TreeVisualizer.class", bytes: tvBuf })
       }
       // Studio mode: compile the other notebook cells alongside so cross-cell
       // class references resolve ("all the code works together").
