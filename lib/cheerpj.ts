@@ -286,6 +286,9 @@ export async function compileAndRunJava(code: string, opts: CompileRunOptions = 
     // Precompiled helper .class files (TreeVisualizer) live on /str/, so add it to
     // the classpath when present.
     const outDir = `/files/run_${runId}`
+    const File = await lib.java.io.File
+    const dirFile = await new File(outDir)
+    await dirFile.mkdirs()
     const classpath = (opts.extraClasses?.length ?? 0) > 0 ? `${outDir}:/str/` : outDir
 
     const ByteArrayOutputStream = await lib.java.io.ByteArrayOutputStream
