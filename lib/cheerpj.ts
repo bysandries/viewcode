@@ -286,10 +286,7 @@ export async function compileAndRunJava(code: string, opts: CompileRunOptions = 
     // Precompiled helper .class files (TreeVisualizer) live on /str/, so add it to
     // the classpath when present.
     const outDir = `/files/run_${runId}`
-    const File = await lib.java.io.File
-    const dirFile = await new File(outDir)
-    await dirFile.mkdirs()
-    const classpath = (opts.extraClasses?.length ?? 0) > 0 ? `${outDir}:/str/` : outDir
+    const runClasspath = (opts.extraClasses?.length ?? 0) > 0 ? `${outDir}:/str/` : outDir
 
     const ByteArrayOutputStream = await lib.java.io.ByteArrayOutputStream
     const PrintStream = await lib.java.io.PrintStream
@@ -342,7 +339,6 @@ export async function compileAndRunJava(code: string, opts: CompileRunOptions = 
             "org.eclipse.jdt.internal.compiler.batch.Main",
             "/str/ecj.jar",
             "-d", outDir,
-            "-cp", classpath,
             "-source", "1.8",
             "-target", "1.8",
             "-nowarn",
@@ -376,16 +372,31 @@ export async function compileAndRunJava(code: string, opts: CompileRunOptions = 
       // class from another not-yet-compiled cell will succeed on a later round once
       // that cell's .class lands on the classpath. Stop when a round makes no
       // progress. The entry (sourceFile) is compiled last so it sees every sibling.
+      let outDirCreated = false
       let pending = [...extraSourcePaths, sourceFile]
       const lastByPath = new Map<string, Awaited<ReturnType<typeof runEcj>>>()
       for (;;) {
         const stillPending: string[] = []
         let progressed = false
         for (const path of pending) {
-          const r = await runEcj([path])
+          // ECJ strictly validates the classpath before compilation. Before the first file
+          // succeeds, outDir does not exist, so including it in -cp causes a fatal error.
+          let cp = ""
+          if (outDirCreated) {
+            cp = (opts.extraClasses?.length ?? 0) > 0 ? `${outDir}:/str/` : outDir
+          } else {
+            cp = (opts.extraClasses?.length ?? 0) > 0 ? `/str/` : ""
+          }
+          const args = cp ? ["-cp", cp] : []
+
+          const r = await runEcj([path], args)
           lastByPath.set(path, r)
-          if (r.code === 0) progressed = true
-          else stillPending.push(path)
+          if (r.code === 0) {
+            progressed = true
+            outDirCreated = true
+          } else {
+            stillPending.push(path)
+          }
         }
         pending = stillPending
         if (pending.length === 0 || !progressed) break
@@ -400,7 +411,9 @@ export async function compileAndRunJava(code: string, opts: CompileRunOptions = 
         if (r.thrown) compileErrorStr = r.thrown
       }
     } else {
-      const r = await runEcj([sourceFile, ...extraSourcePaths])
+      const cp = (opts.extraClasses?.length ?? 0) > 0 ? `/str/` : ""
+      const args = cp ? ["-cp", cp] : []
+      const r = await runEcj([sourceFile, ...extraSourcePaths], args)
       compileExitCode = r.code
       compileOutStr = r.out
       compileErrStr = r.err
@@ -477,7 +490,7 @@ export async function compileAndRunJava(code: string, opts: CompileRunOptions = 
       // Run from the per-run output dir where the .class was compiled, with timeout.
       // The classpath also includes /str/ so TreeVisualizer resolves at runtime.
       exitCode = await Promise.race([
-        window.cheerpjRunMain(className, classpath),
+        window.cheerpjRunMain(className, runClasspath),
         runTimeout,
       ])
 
