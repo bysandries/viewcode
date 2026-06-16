@@ -497,9 +497,10 @@ export async function compileAndRunJava(code: string, opts: CompileRunOptions = 
 // ---------------------------------------------------------------------------
 // Multi-cell program assembly
 //
-// The notebook compiles as ONE program: running/visualizing a cell compiles it
-// together with every other code cell so a class defined anywhere is usable
-// everywhere ("shared classes, fresh run each cell").
+// The notebook compiles cumulatively, like a Jupyter notebook run top-to-bottom:
+// running/visualizing a cell compiles it together with every code cell ABOVE it
+// (the first cell down to the current one). Cells below the target are ignored,
+// so a class defined earlier is usable later ("shared classes, fresh run each cell").
 // ---------------------------------------------------------------------------
 
 export type CellRole = "runnable" | "library"
@@ -578,9 +579,10 @@ const codeCells = (cells: NotebookCell[]): CodeCell[] =>
   cells.filter((c): c is CodeCell => c.kind === "code")
 
 /**
- * Assemble the whole notebook into a single compilable program with `targetId`
- * as the entry point. Other code cells that define classes ride along as
- * extraSources so cross-cell references resolve.
+ * Assemble the cells from the first up to (and including) `targetId` into a
+ * single compilable program with that cell as the entry point. Earlier code
+ * cells that define classes ride along as extraSources so references resolve;
+ * cells AFTER the target are ignored (cumulative, Jupyter-style scope).
  */
 export function buildProgram(
   cells: NotebookCell[],
@@ -588,8 +590,9 @@ export function buildProgram(
   overrides: Record<string, CellRoleOverride> = {},
 ): AssembledProgram {
   const all = codeCells(cells)
-  const target = all.find((c) => c.id === targetId)
-  if (!target) throw new ProgramAssemblyError("That code block no longer exists.")
+  const targetIndex = all.findIndex((c) => c.id === targetId)
+  if (targetIndex === -1) throw new ProgramAssemblyError("That code block no longer exists.")
+  const target = all[targetIndex]
 
   const targetRole = getCellRole(target.code, overrides[target.id])
   if (!targetRole.canVisualize) {
@@ -624,8 +627,10 @@ export function buildProgram(
   // Seed collision map with the entry's own top-level types.
   for (const name of topLevelTypeNames(entryCode)) nameOwner.set(name, labelOf(target))
 
-  for (const cell of all) {
-    if (cell.id === targetId) continue
+  // Cumulative scope: only cells from the first up to (and including) the target
+  // compile together. Cells BELOW the target are skipped, so a broken or
+  // duplicate-named class later in the notebook can't break an earlier run.
+  for (const cell of all.slice(0, targetIndex)) {
     const names = topLevelTypeNames(cell.code)
     if (names.length === 0) continue // loose-statement sibling: nothing to compile
 
