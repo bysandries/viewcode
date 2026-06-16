@@ -68,6 +68,37 @@ function normalise(code: string): string {
   return stripStrings(stripComments(code))
 }
 
+/**
+ * java.util types that imply `import java.util.*`. Shared by the Run-path
+ * auto-fix (fixMissingImports) and the line-preserving ensureUtilImport().
+ */
+const UTIL_CLASSES = [
+  "ArrayList", "LinkedList", "HashMap", "HashSet", "TreeMap", "TreeSet",
+  "Arrays", "Collections", "Scanner", "List", "Map", "Set", "Queue",
+  "Stack", "Deque", "ArrayDeque", "PriorityQueue", "Iterator",
+]
+
+/**
+ * Ensure java.util collections are importable WITHOUT changing the line count.
+ *
+ * Unlike fixMissingImports (which prepends a brand-new line and is only used on
+ * the Run path), this merges `import java.util.*;` onto the START of the first
+ * line, so the source keeps exactly the same number of lines. The visualizer
+ * depends on that: instrumentation bakes editor line numbers into
+ * TreeVisualizer.show(N) calls, so the compile must never move lines.
+ *
+ * Returns the source unchanged when java.util isn't used or `import java.util.*`
+ * is already present. Token matching avoids false hits like "Mapper" -> "Map".
+ */
+export function ensureUtilImport(code: string): string {
+  const normalised = normalise(code)
+  const tokens = new Set(normalised.split(/[^A-Za-z0-9_]+/))
+  const needsUtil = UTIL_CLASSES.some((cls) => tokens.has(cls))
+  const hasUtilImport = normalised.includes("java.util.*")
+  if (!needsUtil || hasUtilImport) return code
+  return `import java.util.*; ${code}`
+}
+
 // ---------------------------------------------------------------------------
 // Diagnostic checks (unfixable errors → user must correct)
 // ---------------------------------------------------------------------------
@@ -335,14 +366,7 @@ function fixMissingMainMethod(code: string): { code: string; fix: string } | nul
 function fixMissingImports(code: string): { code: string; fix: string } | null {
   const normalised = normalise(code)
 
-  // Classes that require java.util import
-  const utilClasses = [
-    "ArrayList", "LinkedList", "HashMap", "HashSet", "TreeMap", "TreeSet",
-    "Arrays", "Collections", "Scanner", "List", "Map", "Set", "Queue",
-    "Stack", "Deque", "ArrayDeque", "PriorityQueue", "Iterator",
-  ]
-
-  const needsUtil = utilClasses.some(
+  const needsUtil = UTIL_CLASSES.some(
     (cls) => new RegExp(`\\b${cls}\\b`).test(normalised)
   )
   const hasUtilImport = /import\s+java\.util\.\*/.test(normalised)

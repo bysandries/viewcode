@@ -12,7 +12,7 @@
  * 5. Capture stdout/stderr via PrintStream redirection
  */
 
-import { preCompileCheck, type PreCompileResult } from "@/lib/java-precompile-checks"
+import { preCompileCheck, ensureUtilImport, type PreCompileResult } from "@/lib/java-precompile-checks"
 import type { CodeCell, NotebookCell } from "@/types/notebook"
 
 export interface JavaRunResult {
@@ -213,7 +213,11 @@ export async function compileAndRunJava(code: string, opts: CompileRunOptions = 
     }
     
     // Use the (potentially auto-fixed) code from here on
-    const processedCode = preCheck.code
+    // Ensure java.util is importable. On the Run path preCompileCheck already did
+    // this; on the Visualize path (skipPrecheck) it didn't, so a cell that omits
+    // `import java.util.*` would otherwise fail to compile. ensureUtilImport merges
+    // the import onto the first line so the instrumentation's line mapping is intact.
+    const processedCode = ensureUtilImport(preCheck.code)
     
     const lib = await getLib()
     const className = extractClassName(processedCode)
@@ -263,7 +267,7 @@ export async function compileAndRunJava(code: string, opts: CompileRunOptions = 
       const basename = src.path.split("/").pop()!
       const nameNoExt = basename.endsWith(".java") ? basename.slice(0, -5) : basename
       const uniquePath = `/str/${nameNoExt}_${runId}.java`
-      window.cheerpOSAddStringFile(uniquePath, prepareSource(src.content))
+      window.cheerpOSAddStringFile(uniquePath, prepareSource(ensureUtilImport(src.content)))
       extraSourcePaths.push(uniquePath)
     }
 
@@ -277,9 +281,12 @@ export async function compileAndRunJava(code: string, opts: CompileRunOptions = 
     console.log("[v0] CheerpJ: Compiling with ECJ...")
     const compileStart = performance.now()
 
-    // Compiled output lives in /files/; precompiled helper .class files are written
-    // to /str/ (the JS-writable mount), so put both on the classpath when present.
-    const classpath = (opts.extraClasses?.length ?? 0) > 0 ? "/files/:/str/" : "/files/"
+    // Compile into a fresh per-run output dir so stale .class files from an earlier
+    // run (e.g. a class you've since renamed or deleted) can't shadow this code.
+    // Precompiled helper .class files (TreeVisualizer) live on /str/, so add it to
+    // the classpath when present.
+    const outDir = `/files/run_${runId}`
+    const classpath = (opts.extraClasses?.length ?? 0) > 0 ? `${outDir}:/str/` : outDir
 
     const ByteArrayOutputStream = await lib.java.io.ByteArrayOutputStream
     const PrintStream = await lib.java.io.PrintStream
@@ -331,7 +338,7 @@ export async function compileAndRunJava(code: string, opts: CompileRunOptions = 
           window.cheerpjRunMain(
             "org.eclipse.jdt.internal.compiler.batch.Main",
             "/str/ecj.jar",
-            "-d", "/files/",
+            "-d", outDir,
             "-cp", classpath,
             "-source", "1.8",
             "-target", "1.8",
@@ -361,13 +368,33 @@ export async function compileAndRunJava(code: string, opts: CompileRunOptions = 
     let compileErrorStr = ""
 
     if (opts.precompileSeparately && extraSourcePaths.length > 0) {
-      compileExitCode = 0
+      // Compile each file in its own ECJ pass (avoids CheerpJ's multi-file scanner
+      // AIOOBE). Iterate in rounds: a file that fails only because it references a
+      // class from another not-yet-compiled cell will succeed on a later round once
+      // that cell's .class lands on the classpath. Stop when a round makes no
+      // progress. The entry (sourceFile) is compiled last so it sees every sibling.
+      let pending = [...extraSourcePaths, sourceFile]
+      const lastByPath = new Map<string, Awaited<ReturnType<typeof runEcj>>>()
+      for (;;) {
+        const stillPending: string[] = []
+        let progressed = false
+        for (const path of pending) {
+          const r = await runEcj([path])
+          lastByPath.set(path, r)
+          if (r.code === 0) progressed = true
+          else stillPending.push(path)
+        }
+        pending = stillPending
+        if (pending.length === 0 || !progressed) break
+      }
+      compileExitCode = pending.length === 0 ? 0 : 1
+      // Aggregate each file's final attempt (entry last = most relevant error).
       for (const path of [...extraSourcePaths, sourceFile]) {
-        const r = await runEcj([path])
+        const r = lastByPath.get(path)
+        if (!r) continue
         compileOutStr += r.out
         compileErrStr += r.err
         if (r.thrown) compileErrorStr = r.thrown
-        if (r.code !== 0) { compileExitCode = r.code; break }
       }
     } else {
       const r = await runEcj([sourceFile, ...extraSourcePaths])
@@ -444,8 +471,8 @@ export async function compileAndRunJava(code: string, opts: CompileRunOptions = 
         setTimeout(() => reject(new Error("Execution timeout exceeded (10s)")), MAX_RUN_TIME_MS)
       })
       
-      // Run the class from /files/ where the .class was compiled to, with timeout.
-      // Include /str/ so precompiled helper classes (TreeVisualizer) resolve at runtime.
+      // Run from the per-run output dir where the .class was compiled, with timeout.
+      // The classpath also includes /str/ so TreeVisualizer resolves at runtime.
       exitCode = await Promise.race([
         window.cheerpjRunMain(className, classpath),
         runTimeout,
