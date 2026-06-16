@@ -281,11 +281,26 @@ export async function compileAndRunJava(code: string, opts: CompileRunOptions = 
     console.log("[v0] CheerpJ: Compiling with ECJ...")
     const compileStart = performance.now()
 
-    // Compile into a fresh per-run output dir so stale .class files from an earlier
-    // run (e.g. a class you've since renamed or deleted) can't shadow this code.
-    // Precompiled helper .class files (TreeVisualizer) live on /str/, so add it to
-    // the classpath when present.
-    const outDir = `/files/run_${runId}`
+    // Clean up stale .class files from /files/ from earlier runs
+    // so they can't shadow renamed or deleted classes.
+    try {
+      const File = await lib.java.io.File
+      const dir = await new File("/files/")
+      const files = await dir.listFiles()
+      if (files) {
+        for (let i = 0; i < files.length; i++) {
+          const f = files[i]
+          const name = await f.getName()
+          if (name.endsWith(".class")) {
+            await f.delete()
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("[v0] CheerpJ: Cleanup failed", e)
+    }
+
+    const outDir = "/files/"
     const runClasspath = (opts.extraClasses?.length ?? 0) > 0 ? `${outDir}:/str/` : outDir
 
     const ByteArrayOutputStream = await lib.java.io.ByteArrayOutputStream
@@ -339,6 +354,7 @@ export async function compileAndRunJava(code: string, opts: CompileRunOptions = 
             "org.eclipse.jdt.internal.compiler.batch.Main",
             "/str/ecj.jar",
             "-d", outDir,
+            "-cp", runClasspath,
             "-source", "1.8",
             "-target", "1.8",
             "-nowarn",
@@ -372,28 +388,16 @@ export async function compileAndRunJava(code: string, opts: CompileRunOptions = 
       // class from another not-yet-compiled cell will succeed on a later round once
       // that cell's .class lands on the classpath. Stop when a round makes no
       // progress. The entry (sourceFile) is compiled last so it sees every sibling.
-      let outDirCreated = false
       let pending = [...extraSourcePaths, sourceFile]
       const lastByPath = new Map<string, Awaited<ReturnType<typeof runEcj>>>()
       for (;;) {
         const stillPending: string[] = []
         let progressed = false
         for (const path of pending) {
-          // ECJ strictly validates the classpath before compilation. Before the first file
-          // succeeds, outDir does not exist, so including it in -cp causes a fatal error.
-          let cp = ""
-          if (outDirCreated) {
-            cp = (opts.extraClasses?.length ?? 0) > 0 ? `${outDir}:/str/` : outDir
-          } else {
-            cp = (opts.extraClasses?.length ?? 0) > 0 ? `/str/` : ""
-          }
-          const args = cp ? ["-cp", cp] : []
-
-          const r = await runEcj([path], args)
+          const r = await runEcj([path])
           lastByPath.set(path, r)
           if (r.code === 0) {
             progressed = true
-            outDirCreated = true
           } else {
             stillPending.push(path)
           }
@@ -411,9 +415,7 @@ export async function compileAndRunJava(code: string, opts: CompileRunOptions = 
         if (r.thrown) compileErrorStr = r.thrown
       }
     } else {
-      const cp = (opts.extraClasses?.length ?? 0) > 0 ? `/str/` : ""
-      const args = cp ? ["-cp", cp] : []
-      const r = await runEcj([sourceFile, ...extraSourcePaths], args)
+      const r = await runEcj([sourceFile, ...extraSourcePaths])
       compileExitCode = r.code
       compileOutStr = r.out
       compileErrStr = r.err
