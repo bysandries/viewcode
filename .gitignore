@@ -21,3 +21,6 @@ node_modules
 
 # TypeScript build info
 tsconfig.tsbuildinfo
+
+# Local Java toolchain (downloaded JDK used for native build/repro; not app code)
+/jdk-21.0.2/

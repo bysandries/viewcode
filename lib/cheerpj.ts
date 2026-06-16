@@ -239,7 +239,14 @@ export async function compileAndRunJava(code: string, opts: CompileRunOptions = 
         // Strip 'public' from top-level declarations so ECJ accepts arbitrary filenames.
         // It's safe because all files are compiled in the same default package.
         .replace(/(^|\s)public\s+(class|interface|enum|record)\b/g, "$1$2")
+      
+      // Pad to a fixed size with whitespace. CheerpJ's VFS sometimes has 
+      // off-by-one read errors or returns garbage at the EOF boundary.
+      // Padding with the EOF character (\u001a) ensures the ECJ Scanner stops
+      // cleanly before any garbage.
       if (!cleaned.endsWith("\n")) cleaned += "\n"
+      cleaned += "\u001a\n"
+      
       return new TextEncoder().encode(cleaned)
     }
 
