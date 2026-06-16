@@ -242,10 +242,13 @@ export async function compileAndRunJava(code: string, opts: CompileRunOptions = 
       
       // Pad to a fixed size with whitespace. CheerpJ's VFS sometimes has 
       // off-by-one read errors or returns garbage at the EOF boundary.
-      // Padding with the EOF character (\u001a) ensures the ECJ Scanner stops
-      // cleanly before any garbage.
+      // Padding with the EOF character (\u001a) makes ECJ's scanner stop here
+      // even if the VFS returns garbage past EOF. It MUST be the final byte:
+      // a newline after the SUB makes it an illegal token and ECJ fails with
+      // `Syntax error on token "Ctrl-Z"` on every compile (JLS 3.5: a trailing
+      // SUB counts as end-of-input only when it is the last character).
       if (!cleaned.endsWith("\n")) cleaned += "\n"
-      cleaned += "\u001a\n"
+      cleaned += "\u001a"
       
       return new TextEncoder().encode(cleaned)
     }
